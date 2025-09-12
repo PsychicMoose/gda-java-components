@@ -84,7 +84,7 @@ public class SystemPerformanceManagerTest
 	@Test
 	public void testStartAndStopManager()
 	{
-		this.spMgr.startManager();
+    	boolean started = this.spMgr.startManager();
 		
 		try {
 			Thread.sleep(60000L);
@@ -92,7 +92,7 @@ public class SystemPerformanceManagerTest
 			// ignore
 		}
 		
-		this.spMgr.stopManager();
+    boolean stopped = this.spMgr.stopManager();
 	}
 	
 }
