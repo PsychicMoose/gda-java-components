@@ -24,18 +24,23 @@ import programmingtheiot.common.ConfigConst;
  * <p>SystemPerformanceData
  * <p>SensorData
  * 
+ * NOTE: This is an OPTIONAL implementation as noted in the requirements.
  */
 public class SystemStateData extends BaseIotData implements Serializable
 {
 	// static
-	
+	private static final long serialVersionUID = 1L;
 	
 	// private var's
-	
-    
+	private int command = ConfigConst.DEFAULT_COMMAND;
+	private List<SensorData> sensorDataList = new ArrayList<>();
+	private List<SystemPerformanceData> sysPerfDataList = new ArrayList<>();
     
 	// constructors
 	
+	/**
+	 * Default constructor.
+	 */
 	public SystemStateData()
 	{
 		super();
@@ -44,33 +49,66 @@ public class SystemStateData extends BaseIotData implements Serializable
 	
 	// public methods
 	
+	/**
+	 * Adds a SensorData instance to the internal list.
+	 * @param data The SensorData to add
+	 * @return True if successfully added, false otherwise
+	 */
 	public boolean addSensorData(SensorData data)
 	{
+		if (data != null) {
+			return this.sensorDataList.add(data);
+		}
 		return false;
 	}
 	
+	/**
+	 * Adds a SystemPerformanceData instance to the internal list.
+	 * @param data The SystemPerformanceData to add
+	 * @return True if successfully added, false otherwise
+	 */
 	public boolean addSystemPerformanceData(SystemPerformanceData data)
 	{
+		if (data != null) {
+			return this.sysPerfDataList.add(data);
+		}
 		return false;
 	}
 	
+	/**
+	 * Gets the command value.
+	 * @return The command as an integer
+	 */
 	public int getCommand()
 	{
-		return 0;
+		return this.command;
 	}
 	
+	/**
+	 * Gets the list of SensorData instances.
+	 * @return The list of SensorData (may be empty but not null)
+	 */
 	public List<SensorData> getSensorDataList()
 	{
-		return null;
+		return this.sensorDataList;
 	}
 	
+	/**
+	 * Gets the list of SystemPerformanceData instances.
+	 * @return The list of SystemPerformanceData (may be empty but not null)
+	 */
 	public List<SystemPerformanceData> getSystemPerformanceDataList()
 	{
-		return null;
+		return this.sysPerfDataList;
 	}
 	
+	/**
+	 * Sets the command value.
+	 * @param actionCmd The command to set
+	 */
 	public void setCommand(int actionCmd)
 	{
+		this.command = actionCmd;
 	}
 	
 	/**
@@ -94,11 +132,34 @@ public class SystemStateData extends BaseIotData implements Serializable
 	
 	// protected methods
 	
-	/* (non-Javadoc)
-	 * @see programmingtheiot.data.BaseIotData#handleUpdateData(programmingtheiot.data.BaseIotData)
+	/**
+	 * Handles updating data from another BaseIotData instance.
+	 * If the data is a SystemStateData instance, copies its specific properties.
+	 * 
+	 * @param data The BaseIotData instance to update from
 	 */
 	protected void handleUpdateData(BaseIotData data)
 	{
+		if (data instanceof SystemStateData) {
+			SystemStateData ssData = (SystemStateData) data;
+			
+			// Set the command
+			this.setCommand(ssData.getCommand());
+			
+			// Clear and copy sensor data list
+			this.sensorDataList.clear();
+			List<SensorData> sensorList = ssData.getSensorDataList();
+			if (sensorList != null) {
+				this.sensorDataList.addAll(sensorList);
+			}
+			
+			// Clear and copy system performance data list
+			this.sysPerfDataList.clear();
+			List<SystemPerformanceData> perfList = ssData.getSystemPerformanceDataList();
+			if (perfList != null) {
+				this.sysPerfDataList.addAll(perfList);
+			}
+		}
 	}
 	
 }

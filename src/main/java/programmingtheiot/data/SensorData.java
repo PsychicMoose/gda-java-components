@@ -16,39 +16,57 @@ import java.io.Serializable;
 import programmingtheiot.common.ConfigConst;
 
 /**
- * Shell representation of class for student implementation.
- *
+ * SensorData implementation for handling sensor readings.
+ * This class contains the sensor value and related methods.
  */
 public class SensorData extends BaseIotData implements Serializable
 {
 	// static
-	
+	private static final long serialVersionUID = 1L;
 	
 	// private var's
-	
+	private float value = ConfigConst.DEFAULT_VAL;
     
 	// constructors
 	
+	/**
+	 * Default constructor.
+	 */
 	public SensorData()
 	{
 		super();
 	}
 	
+	/**
+	 * Constructor with sensor type.
+	 * @param sensorType The type ID for this sensor
+	 */
 	public SensorData(int sensorType)
 	{
 		super();
+		setTypeID(sensorType);
 	}
 	
 	
 	// public methods
 	
+	/**
+	 * Gets the sensor value.
+	 * @return The value as a float
+	 */
 	public float getValue()
 	{
-		return 0.0f;
+		return this.value;
 	}
 	
+	/**
+	 * Sets the sensor value and updates timestamp.
+	 * @param val The value to set
+	 */
 	public void setValue(float val)
 	{
+		updateTimeStamp();
+		this.value = val;
 	}
 	
 	/**
@@ -70,11 +88,18 @@ public class SensorData extends BaseIotData implements Serializable
 	
 	// protected methods
 	
-	/* (non-Javadoc)
-	 * @see programmingtheiot.data.BaseIotData#handleUpdateData(programmingtheiot.data.BaseIotData)
+	/**
+	 * Handles updating data from another BaseIotData instance.
+	 * If the data is a SensorData instance, copies its specific properties.
+	 * 
+	 * @param data The BaseIotData instance to update from
 	 */
 	protected void handleUpdateData(BaseIotData data)
 	{
+		if (data instanceof SensorData) {
+			SensorData sData = (SensorData) data;
+			this.setValue(sData.getValue());
+		}
 	}
 	
 }

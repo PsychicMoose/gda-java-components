@@ -16,23 +16,25 @@ import java.io.Serializable;
 import programmingtheiot.common.ConfigConst;
 
 /**
- * Shell representation of class for student implementation.
- *
+ * ActuatorData implementation for handling actuator commands and responses.
+ * This class contains command, value, state data, and response flag information.
  */
 public class ActuatorData extends BaseIotData implements Serializable
 {
 	// static
-	
+	private static final long serialVersionUID = 1L;
 	
 	// private var's
-	
+	private int     command      = ConfigConst.DEFAULT_COMMAND;
+	private float   value        = ConfigConst.DEFAULT_VAL;
+	private boolean isResponse   = false;
+	private String  stateData    = "";
     
     
 	// constructors
 	
 	/**
-	 * Default.
-	 * 
+	 * Default constructor.
 	 */
 	public ActuatorData()
 	{
@@ -42,31 +44,81 @@ public class ActuatorData extends BaseIotData implements Serializable
 	
 	// public methods
 	
+	/**
+	 * Gets the command value.
+	 * @return The command as an integer
+	 */
 	public int getCommand()
 	{
-		return 0;
+		return this.command;
 	}
 	
+	/**
+	 * Gets the state data string.
+	 * @return The state data
+	 */
+	public String getStateData()
+	{
+		return this.stateData;
+	}
+	
+	/**
+	 * Gets the actuator value.
+	 * @return The value as a float
+	 */
 	public float getValue()
 	{
-		return 0.0f;
+		return this.value;
 	}
 	
+	/**
+	 * Checks if this is a response message.
+	 * @return True if this is a response, false otherwise
+	 */
 	public boolean isResponseFlagEnabled()
 	{
-		return false;
+		return this.isResponse;
 	}
 	
+	/**
+	 * Sets this actuator data as a response and updates timestamp.
+	 */
 	public void setAsResponse()
 	{
+		updateTimeStamp();
+		this.isResponse = true;
 	}
 	
+	/**
+	 * Sets the command value and updates timestamp.
+	 * @param command The command to set
+	 */
 	public void setCommand(int command)
 	{
+		updateTimeStamp();
+		this.command = command;
 	}
 	
+	/**
+	 * Sets the state data and updates timestamp.
+	 * @param stateData The state data to set (null values are ignored)
+	 */
+	public void setStateData(String stateData)
+	{
+		updateTimeStamp();
+		if (stateData != null) {
+			this.stateData = stateData;
+		}
+	}
+	
+	/**
+	 * Sets the actuator value and updates timestamp.
+	 * @param val The value to set
+	 */
 	public void setValue(float val)
 	{
+		updateTimeStamp();
+		this.value = val;
 	}
 	
 	/**
@@ -90,11 +142,24 @@ public class ActuatorData extends BaseIotData implements Serializable
 	
 	// protected methods
 	
-	/* (non-Javadoc)
-	 * @see programmingtheiot.data.BaseIotData#handleUpdateData(programmingtheiot.data.BaseIotData)
+	/**
+	 * Handles updating data from another BaseIotData instance.
+	 * If the data is an ActuatorData instance, copies its specific properties.
+	 * 
+	 * @param data The BaseIotData instance to update from
 	 */
 	protected void handleUpdateData(BaseIotData data)
 	{
+		if (data instanceof ActuatorData) {
+			ActuatorData aData = (ActuatorData) data;
+			this.setCommand(aData.getCommand());
+			this.setValue(aData.getValue());
+			this.setStateData(aData.getStateData());
+			
+			if (aData.isResponseFlagEnabled()) {
+				this.isResponse = true;
+			}
+		}
 	}
 	
 }

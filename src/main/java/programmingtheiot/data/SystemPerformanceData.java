@@ -16,52 +16,88 @@ import java.io.Serializable;
 import programmingtheiot.common.ConfigConst;
 
 /**
- * Shell representation of class for student implementation.
- *
+ * SystemPerformanceData implementation for handling system metrics.
+ * This class contains CPU, memory, and disk utilization values.
  */
 public class SystemPerformanceData extends BaseIotData implements Serializable
 {
 	// static
-	
+	private static final long serialVersionUID = 1L;
 	
 	// private var's
-	
+	private float cpuUtil = ConfigConst.DEFAULT_VAL;
+	private float diskUtil = ConfigConst.DEFAULT_VAL;
+	private float memUtil = ConfigConst.DEFAULT_VAL;
     
 	// constructors
 	
+	/**
+	 * Default constructor. Sets the name to SYS_PERF_DATA.
+	 */
 	public SystemPerformanceData()
 	{
 		super();
+		setName(ConfigConst.SYS_PERF_DATA);
 	}
 	
 	
 	// public methods
 	
+	/**
+	 * Gets the CPU utilization percentage.
+	 * @return The CPU utilization as a float
+	 */
 	public float getCpuUtilization()
 	{
-		return 0.0f;
+		return this.cpuUtil;
 	}
 	
+	/**
+	 * Gets the disk utilization percentage.
+	 * @return The disk utilization as a float
+	 */
 	public float getDiskUtilization()
 	{
-		return 0.0f;
+		return this.diskUtil;
 	}
 	
+	/**
+	 * Gets the memory utilization percentage.
+	 * @return The memory utilization as a float
+	 */
 	public float getMemoryUtilization()
 	{
-		return 0.0f;
+		return this.memUtil;
 	}
 	
+	/**
+	 * Sets the CPU utilization and updates timestamp.
+	 * @param val The CPU utilization percentage to set
+	 */
 	public void setCpuUtilization(float val)
 	{
+		updateTimeStamp();
+		this.cpuUtil = val;
 	}
 	
+	/**
+	 * Sets the disk utilization and updates timestamp.
+	 * @param val The disk utilization percentage to set
+	 */
 	public void setDiskUtilization(float val)
 	{
+		updateTimeStamp();
+		this.diskUtil = val;
 	}
 	
+	/**
+	 * Sets the memory utilization and updates timestamp.
+	 * @param val The memory utilization percentage to set
+	 */
 	public void setMemoryUtilization(float val)
 	{
+		updateTimeStamp();
+		this.memUtil = val;
 	}
 	
 	/**
@@ -85,11 +121,20 @@ public class SystemPerformanceData extends BaseIotData implements Serializable
 	
 	// protected methods
 	
-	/* (non-Javadoc)
-	 * @see programmingtheiot.data.BaseIotData#handleUpdateData(programmingtheiot.data.BaseIotData)
+	/**
+	 * Handles updating data from another BaseIotData instance.
+	 * If the data is a SystemPerformanceData instance, copies its specific properties.
+	 * 
+	 * @param data The BaseIotData instance to update from
 	 */
 	protected void handleUpdateData(BaseIotData data)
 	{
+		if (data instanceof SystemPerformanceData) {
+			SystemPerformanceData spData = (SystemPerformanceData) data;
+			this.setCpuUtilization(spData.getCpuUtilization());
+			this.setDiskUtilization(spData.getDiskUtilization());
+			this.setMemoryUtilization(spData.getMemoryUtilization());
+		}
 	}
 	
 }
