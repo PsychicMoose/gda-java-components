@@ -68,15 +68,18 @@ enableConfirmedMsgs = True
 #
 [GatewayDevice]
 deviceLocationID        = gatewaydevice001
+locationID              = gatewaydevice001
 enableLogging           = True
-pollCycleSecs           = 60
+pollCycles              = 30
+pollCycleSecs           = 30
+diskUtilPath = /mnt/c
 enableMqttClient        = True
 enableCoapServer        = False
 enableCoapClient        = False
 enableCloudClient       = False
 enableSmtpClient        = False
 enablePersistenceClient = False
-enableSystemPerformance = False
+enableSystemPerformance = True
 testGdaDataPath         = /tmp/gda-data
 testCdaDataPath         = /tmp/cda-data
 testEmptyApp            = False

@@ -13,50 +13,51 @@ package programmingtheiot.gda.system;
 
 import java.util.logging.Logger;
 
-import programmingtheiot.common.ConfigConst;
-
 /**
- *
+ * Base class for system utilization monitoring tasks.
+ * Provides common functionality for CPU, memory, and disk utilization tasks.
  */
 public abstract class BaseSystemUtilTask
 {
-	// static
-	private String name = ConfigConst.NOT_SET;
-	private int typeID = ConfigConst.DEFAULT_TYPE_ID;
-
-	protected static final Logger _Logger =
-		Logger.getLogger(BaseSystemUtilTask.class.getName());
+	// private var's
+	private static final Logger _Logger = Logger.getLogger(BaseSystemUtilTask.class.getName());
 	
+	private String name = null;
+	private int typeID = 0;
+	private float latestValue = 0.0f;
 	
-	// private
-	
-
 	
 	// constructors
 	
+	/**
+	 * Constructor with name and type ID.
+	 * 
+	 * @param name The name of this utilization task
+	 * @param typeID The type identifier for this task
+	 */
 	public BaseSystemUtilTask(String name, int typeID)
 	{
-			super();
-	
-		if (name != null) {
-			this.name = name;
-		}
-		
+		this.name = name;
 		this.typeID = typeID;
 	}
 	
 	
 	// public methods
 	
+	/**
+	 * Gets the name of this utilization task.
+	 * 
+	 * @return The name of the task
+	 */
 	public String getName()
 	{
 		return this.name;
 	}
 	
 	/**
-	 * Returns the type ID of the system utilization task.
+	 * Gets the type ID of this utilization task.
 	 * 
-	 * @return int
+	 * @return The type ID
 	 */
 	public int getTypeID()
 	{
@@ -64,11 +65,51 @@ public abstract class BaseSystemUtilTask
 	}
 	
 	/**
-	 * Template method definition. Sub-class will implement this to retrieve
-	 * the system utilization measure.
+	 * Retrieves the current telemetry value by calling the template method.
+	 * This method is thread-safe and caches the latest value.
 	 * 
-	 * @return float
+	 * @return The current system utilization percentage (0.0 to 100.0)
 	 */
-	public abstract float getTelemetryValue();
+	public synchronized float getTelemetryValue()
+	{
+		try {
+			this.latestValue = getSystemUtil();
+			
+			// Validate the value is within expected range
+			if (this.latestValue < 0.0f) {
+				_Logger.warning("System utilization value is negative: " + this.latestValue + ". Setting to 0.0");
+				this.latestValue = 0.0f;
+			} else if (this.latestValue > 100.0f) {
+				_Logger.warning("System utilization value exceeds 100%: " + this.latestValue + ". Setting to 100.0");
+				this.latestValue = 100.0f;
+			}
+			
+		} catch (Exception e) {
+			_Logger.severe("Error getting telemetry value for " + this.name + ": " + e.getMessage());
+			// Return the last known good value if there's an error
+		}
+		
+		return this.latestValue;
+	}
 	
+	/**
+	 * Gets the latest cached telemetry value without refreshing.
+	 * 
+	 * @return The last retrieved system utilization percentage
+	 */
+	public float getLatestValue()
+	{
+		return this.latestValue;
+	}
+	
+	
+	// protected methods
+	
+	/**
+	 * Template method to be implemented by subclasses for retrieving
+	 * specific system utilization metrics.
+	 * 
+	 * @return The system utilization percentage (should be 0.0 to 100.0)
+	 */
+	protected abstract float getSystemUtil();
 }
