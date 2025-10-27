@@ -313,10 +313,29 @@ public class DeviceDataManager implements IDataMessageListener
 		}
 		
 		// Start MQTT client if enabled
-		if (this.enableMqttClient && this.mqttClient != null) {
-			// TODO: Implement in Lab Module 7
-			// boolean connected = this.mqttClient.connectClient();
-			// _Logger.info("MQTT client connected: " + connected);
+		if (this.mqttClient != null) {
+			if (this.mqttClient.connectClient()) {
+				_Logger.info("Successfully connected MQTT client to broker.");
+				
+				// add necessary subscriptions
+				
+				// TODO: read this from the configuration file
+				int qos = ConfigConst.DEFAULT_QOS;
+				
+				// TODO: check the return value for each and take appropriate action
+				
+				// IMPORTANT NOTE: The 'subscribeToTopic()' method calls shown
+				// below will be moved to MqttClientConnector.connectComplete()
+				// in Lab Module 10. For now, they can remain here.
+				this.mqttClient.subscribeToTopic(ResourceNameEnum.GDA_MGMT_STATUS_MSG_RESOURCE, qos);
+				this.mqttClient.subscribeToTopic(ResourceNameEnum.CDA_ACTUATOR_RESPONSE_RESOURCE, qos);
+				this.mqttClient.subscribeToTopic(ResourceNameEnum.CDA_SENSOR_MSG_RESOURCE, qos);
+				this.mqttClient.subscribeToTopic(ResourceNameEnum.CDA_SYSTEM_PERF_MSG_RESOURCE, qos);
+			} else {
+				_Logger.severe("Failed to connect MQTT client to broker.");
+				
+				// TODO: take appropriate action
+			}
 		}
 		
 		// Start CoAP server if enabled
@@ -362,9 +381,27 @@ public class DeviceDataManager implements IDataMessageListener
 		
 		// Disconnect MQTT client
 		if (this.mqttClient != null) {
-			// TODO: Implement in Lab Module 7
-			// boolean disconnected = this.mqttClient.disconnectClient();
-			// _Logger.info("MQTT client disconnected: " + disconnected);
+			// add necessary un-subscribes
+			
+			// TODO: check the return value for each and take appropriate action
+			
+			// NOTE: The unsubscribeFromTopic() method calls below should match with
+			// the subscribeToTopic() method calls from startManager(). Also, the
+			// unsubscribe logic below can be moved to MqttClientConnector's
+			// disconnectClient() call PRIOR to actually disconnecting from
+			// the MQTT broker.
+			this.mqttClient.unsubscribeFromTopic(ResourceNameEnum.GDA_MGMT_STATUS_MSG_RESOURCE);
+			this.mqttClient.unsubscribeFromTopic(ResourceNameEnum.CDA_ACTUATOR_RESPONSE_RESOURCE);
+			this.mqttClient.unsubscribeFromTopic(ResourceNameEnum.CDA_SENSOR_MSG_RESOURCE);
+			this.mqttClient.unsubscribeFromTopic(ResourceNameEnum.CDA_SYSTEM_PERF_MSG_RESOURCE);
+			
+			if (this.mqttClient.disconnectClient()) {
+				_Logger.info("Successfully disconnected MQTT client from broker.");
+			} else {
+				_Logger.severe("Failed to disconnect MQTT client from broker.");
+				
+				// TODO: take appropriate action
+			}
 		}
 		
 		// Stop CoAP server
@@ -414,11 +451,13 @@ public class DeviceDataManager implements IDataMessageListener
 			this.sysPerfMgr.setDataMessageListener(this);
 		}
 		
-		// Initialize MQTT client if enabled
+		// NOTE: This is new - creating the MQTT client connector instance
 		if (this.enableMqttClient) {
-			_Logger.info("MQTT client enabled - will initialize in Lab Module 7");
-			// TODO: Implement in Lab Module 7
-			// this.mqttClient = new MqttClientConnector();
+			_Logger.info("Initializing MQTT client...");
+			this.mqttClient = new MqttClientConnector();
+			
+			// NOTE: The next line isn't technically needed until Lab Module 10
+			this.mqttClient.setDataMessageListener(this);
 		}
 		
 		// Initialize CoAP server if enabled
@@ -515,4 +554,4 @@ public class DeviceDataManager implements IDataMessageListener
 		
 		return false;
 	}
-}
+} 	
