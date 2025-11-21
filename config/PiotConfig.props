@@ -48,7 +48,7 @@ defaultQoS     = 0
 keepAlive      = 60
 enableAuth     = False
 enableCrypt    = False
-useAsyncClient = False
+useAsyncClient = True
 
 #
 # CoAP client and server configuration information
@@ -66,6 +66,7 @@ enableConfirmedMsgs = True
 #
 # GDA specific configuration information
 #
+
 [GatewayDevice]
 deviceLocationID        = gatewaydevice001
 locationID              = gatewaydevice001
@@ -83,3 +84,9 @@ enableSystemPerformance = True
 testGdaDataPath         = /tmp/gda-data
 testCdaDataPath         = /tmp/cda-data
 testEmptyApp            = False
+handleHumidityChangeOnDevice = True
+humidityMaxTimePastThreshold = 10
+nominalHumiditySetting = 40.0
+triggerHumidifierFloor = 30.0
+triggerHumidifierCeiling = 50.0
+enableRunForever = True  
