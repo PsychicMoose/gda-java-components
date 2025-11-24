@@ -57,7 +57,7 @@ public class DeviceDataManager implements IDataMessageListener
 	
 	private IActuatorDataListener actuatorDataListener = null;
 	private IPubSubClient mqttClient = null;
-	private IPubSubClient cloudClient = null;
+	private CloudClientConnector cloudClient = null;
 	private IPersistenceClient persistenceClient = null;
 	private IRequestResponseClient smtpClient = null;
 	private CoapServerGateway coapServer = null;
@@ -258,34 +258,28 @@ public class DeviceDataManager implements IDataMessageListener
 	}
 
 	@Override
-	public boolean handleIncomingMessage(ResourceNameEnum resourceName, String msg)
-	{
-		if (msg != null) {
-			_Logger.info("Handling incoming generic message for resource: " + resourceName);
-			_Logger.fine("Message content: " + msg);
-			
-			// Determine the content type and convert accordingly
+	public boolean handleIncomingMessage(ResourceNameEnum resourceName, String msg) {
+		if (resourceName != null && msg != null) {
 			try {
-				// Try to determine what type of data this is based on the resource name
-				if (resourceName == ResourceNameEnum.CDA_SENSOR_MSG_RESOURCE) {
-					SensorData sensorData = this.dataUtil.jsonToSensorData(msg);
-					return handleSensorMessage(resourceName, sensorData);
-				} else if (resourceName == ResourceNameEnum.CDA_ACTUATOR_RESPONSE_RESOURCE) {
-					ActuatorData actuatorData = this.dataUtil.jsonToActuatorData(msg);
-					return handleActuatorCommandResponse(resourceName, actuatorData);
-				} else if (resourceName == ResourceNameEnum.CDA_SYSTEM_PERF_MSG_RESOURCE) {
-					SystemPerformanceData perfData = this.dataUtil.jsonToSystemPerformanceData(msg);
-					return handleSystemPerformanceMessage(resourceName, perfData);
+				if (resourceName == ResourceNameEnum.CDA_ACTUATOR_CMD_RESOURCE) {
+					_Logger.info("Handling incoming ActuatorData message: " + msg);
+					
+					// Validate by converting to ActuatorData
+					ActuatorData ad = DataUtil.getInstance().jsonToActuatorData(msg);
+					String jsonData = DataUtil.getInstance().actuatorDataToJson(ad);
+					
+					if (this.mqttClient != null) {
+						_Logger.fine("Publishing actuator command to CDA via MQTT: " + jsonData);
+						return this.mqttClient.publishMessage(resourceName, jsonData, ConfigConst.DEFAULT_QOS);
+					}
+				} else {
+					_Logger.warning("Unknown message type for resource: " + resourceName);
 				}
 			} catch (Exception e) {
-				_Logger.warning("Failed to parse incoming message: " + e.getMessage());
+				_Logger.log(Level.WARNING, "Failed to process incoming message", e);
 			}
-			
-			return true;
-		} else {
-			_Logger.warning("Received null message");
-			return false;
 		}
+		return false;
 	}
 
 	@Override
@@ -323,6 +317,7 @@ public class DeviceDataManager implements IDataMessageListener
 		}
 	}
 
+	
 	@Override
 	public boolean handleSystemPerformanceMessage(ResourceNameEnum resourceName, SystemPerformanceData data)
 	{
@@ -395,9 +390,13 @@ public class DeviceDataManager implements IDataMessageListener
 		
 		// Start cloud client if enabled
 		if (this.enableCloudClient && this.cloudClient != null) {
-			// TODO: Implement in Lab Module 10
+			if (this.cloudClient.connectClient()) {
+				_Logger.info("Successfully connected cloud client.");
+			} else {
+				_Logger.warning("Failed to connect cloud client.");
+			}
 		}
-		
+				
 		// Start persistence client if enabled
 		if (this.enablePersistenceClient && this.persistenceClient != null) {
 			// TODO: Implement as optional exercise in Lab Module 5
@@ -435,9 +434,12 @@ public class DeviceDataManager implements IDataMessageListener
 			// TODO: Implement in Lab Module 8
 		}
 		
-		// Disconnect cloud client
 		if (this.cloudClient != null) {
-			// TODO: Implement in Lab Module 10
+			if (this.cloudClient.disconnectClient()) {
+				_Logger.info("Successfully disconnected cloud client.");
+			} else {
+				_Logger.warning("Failed to disconnect cloud client.");
+			}
 		}
 		
 		// Disconnect persistence client
@@ -482,8 +484,9 @@ public class DeviceDataManager implements IDataMessageListener
 		
 		// Initialize cloud client if enabled
 		if (this.enableCloudClient) {
-			_Logger.info("Cloud client enabled - will initialize in Lab Module 10");
-			// TODO: Implement in Lab Module 10
+			_Logger.info("Initializing cloud client...");
+			this.cloudClient = new CloudClientConnector();
+			this.cloudClient.setDataMessageListener(this);
 		}
 		
 		// Initialize persistence client if enabled
@@ -674,21 +677,24 @@ public class DeviceDataManager implements IDataMessageListener
 	/**
 	 * Handles upstream transmission of data to cloud or other services.
 	 */
-	private boolean handleUpstreamTransmission(ResourceNameEnum resourceName, String jsonData, int qos)
-	{
-		_Logger.info("TODO: Send JSON data to cloud service: " + resourceName);
+	private boolean handleUpstreamTransmission(ResourceNameEnum resourceName, String jsonData, int qos) {
+		_Logger.info("Sending data to cloud service: " + resourceName);
 		
-		// TODO: In Part 04, implement actual transmission logic
-		// This will eventually:
-		// - Send data to cloud service via cloudClient
-		// - Store data in persistence layer if enabled
-		// - Send alerts via SMTP if thresholds are exceeded
-		
-		// For now, just log the data
-		if (jsonData != null && jsonData.length() > 0) {
-			_Logger.fine("Data ready for upstream transmission: " + 
-				jsonData.substring(0, Math.min(jsonData.length(), 100)) + "...");
-			return true;
+		if (this.enableCloudClient && this.cloudClient != null) {
+			// Parse the JSON to determine data type
+			try {
+				if (resourceName == ResourceNameEnum.CDA_SENSOR_MSG_RESOURCE ||
+					resourceName == ResourceNameEnum.GDA_MGMT_STATUS_MSG_RESOURCE) {
+					SensorData sensorData = DataUtil.getInstance().jsonToSensorData(jsonData);
+					return this.cloudClient.sendEdgeDataToCloud(resourceName, sensorData);
+				} else if (resourceName == ResourceNameEnum.CDA_SYSTEM_PERF_MSG_RESOURCE ||
+						resourceName == ResourceNameEnum.GDA_SYSTEM_PERF_MSG_RESOURCE) {
+					SystemPerformanceData perfData = DataUtil.getInstance().jsonToSystemPerformanceData(jsonData);
+					return this.cloudClient.sendEdgeDataToCloud(resourceName, perfData);
+				}
+			} catch (Exception e) {
+				_Logger.warning("Failed to send data to cloud: " + e.getMessage());
+			}
 		}
 		
 		return false;
