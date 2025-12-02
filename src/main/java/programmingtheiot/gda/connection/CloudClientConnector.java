@@ -151,15 +151,39 @@ public class CloudClientConnector implements ICloudClient, IConnectionListener
         _Logger.info("Device ID: " + this.deviceID);
     }
     
-    @Override
-    public boolean connectClient()
-    {
-        if (this.mqttClient != null) {
-            return this.mqttClient.connectClient();
+@Override
+public boolean connectClient()
+{
+    if (this.mqttClient != null) {
+        boolean started = this.mqttClient.connectClient();
+        
+        if (started) {
+            // Wait for the async connection to actually complete
+            int maxWaitSeconds = 10;
+            int waited = 0;
+            
+            while (!this.mqttClient.isConnected() && waited < maxWaitSeconds) {
+                try {
+                    _Logger.info("Waiting for cloud connection... (" + waited + "s)");
+                    Thread.sleep(1000);
+                    waited++;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+            
+            if (this.mqttClient.isConnected()) {
+                _Logger.info("Cloud client connected successfully");
+                return true;
+            } else {
+                _Logger.warning("Cloud client connection timed out after " + maxWaitSeconds + " seconds");
+                return false;
+            }
         }
-        return false;
     }
-
+    return false;
+}
     @Override
     public boolean disconnectClient()
     {
@@ -221,27 +245,30 @@ public boolean sendEdgeDataToCloud(ResourceNameEnum resource, SensorData data)
 public boolean sendEdgeDataToCloud(ResourceNameEnum resource, SystemPerformanceData data)
 {
     if (data != null && this.mqttClient != null) {
-        // Send each metric separately with proper names
         String cloudTopic = this.topicPrefix + this.deviceID;
         
-        String cpuJson = "{\"cpu-utilization\":" + data.getCpuUtilization() + "}";
-        String memJson = "{\"memory-utilization\":" + data.getMemoryUtilization() + "}";
-        String diskJson = "{\"disk-utilization\":" + data.getDiskUtilization() + "}";
-        
-        _Logger.info("Sending CPU to Ubidots: " + cpuJson);
-        this.mqttClient.publishMessage(cloudTopic, cpuJson.getBytes(), this.qos);
-        
-        Thread.sleep(100); // Small delay between messages
-        
-        _Logger.info("Sending Memory to Ubidots: " + memJson);
-        this.mqttClient.publishMessage(cloudTopic, memJson.getBytes(), this.qos);
-        
-        Thread.sleep(100);
-        
-        _Logger.info("Sending Disk to Ubidots: " + diskJson);
-        this.mqttClient.publishMessage(cloudTopic, diskJson.getBytes(), this.qos);
-        
-        return true;
+        try {
+            String cpuJson = "{\"cpu-utilization\":" + data.getCpuUtilization() + "}";
+            String memJson = "{\"memory-utilization\":" + data.getMemoryUtilization() + "}";
+            String diskJson = "{\"disk-utilization\":" + data.getDiskUtilization() + "}";
+            
+            _Logger.info("Sending CPU to Ubidots: " + cpuJson);
+            this.mqttClient.publishMessage(cloudTopic, cpuJson.getBytes(), this.qos);
+            
+            Thread.sleep(100);
+            
+            _Logger.info("Sending Memory to Ubidots: " + memJson);
+            this.mqttClient.publishMessage(cloudTopic, memJson.getBytes(), this.qos);
+            
+            Thread.sleep(100);
+            
+            _Logger.info("Sending Disk to Ubidots: " + diskJson);
+            this.mqttClient.publishMessage(cloudTopic, diskJson.getBytes(), this.qos);
+            
+            return true;
+        } catch (InterruptedException e) {
+            _Logger.warning("Sleep interrupted: " + e.getMessage());
+        }
     }
     return false;
 }
