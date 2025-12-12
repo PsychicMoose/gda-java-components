@@ -1,7 +1,11 @@
 package programmingtheiot.gda.connection;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import javax.net.ssl.HttpsURLConnection;
 
 import org.eclipse.paho.client.mqttv3.IMqttMessageListener;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
@@ -159,7 +163,7 @@ public boolean connectClient()
         
         if (started) {
             // Wait for the async connection to actually complete
-            int maxWaitSeconds = 10;
+            int maxWaitSeconds = 15;
             int waited = 0;
             
             while (!this.mqttClient.isConnected() && waited < maxWaitSeconds) {
@@ -212,26 +216,40 @@ public boolean connectClient()
 public boolean sendEdgeDataToCloud(ResourceNameEnum resource, SensorData data)
 {
     if (data != null && this.mqttClient != null) {
-        // Build variable name based on sensor type
         String variableName = "";
         
-        switch(data.getTypeID()) {
-            case ConfigConst.TEMP_SENSOR_TYPE:
-                variableName = "temperature";
-                break;
-            case ConfigConst.HUMIDITY_SENSOR_TYPE:
-                variableName = "humidity";
-                break;
-            case ConfigConst.PRESSURE_SENSOR_TYPE:
-                variableName = "pressure";
-                break;
-            default:
-                variableName = data.getName().toLowerCase().replace(" ", "-");
+        // Map Type IDs to Ubidots Variable Labels
+        int typeId = data.getTypeID();
+        
+        // -----------------------------------------------------------
+        // PANOPTICON SENSOR MAPPING
+        // -----------------------------------------------------------
+        if (typeId == 1016) { 
+            // User confirmed: ID 1016 arrives as 1.0 or 0.0
+            // We map this directly to "focus-state" for the graph
+            variableName = "focus-state"; 
+            
+        } else if (typeId == 1014) { 
+            variableName = "light-level"; 
+        } else if (typeId == 1015) { 
+            variableName = "noise-level"; 
+
+        // -----------------------------------------------------------
+        // STANDARD SENSORS (From ConfigConst)
+        // -----------------------------------------------------------
+        } else if (typeId == ConfigConst.TEMP_SENSOR_TYPE) {
+            variableName = "temperature";
+        } else if (typeId == ConfigConst.HUMIDITY_SENSOR_TYPE) {
+            variableName = "humidity";
+        } else if (typeId == ConfigConst.PRESSURE_SENSOR_TYPE) {
+            variableName = "pressure";
+        } else {
+            // Fallback
+            variableName = data.getName().toLowerCase().replace(" ", "-");
         }
         
-        // Build Ubidots JSON with proper variable name
+        // Build Payload
         String ubidotsJson = "{\"" + variableName + "\":" + data.getValue() + "}";
-        
         String cloudTopic = this.topicPrefix + this.deviceID;
         
         _Logger.info("Sending to Ubidots: " + cloudTopic + " -> " + ubidotsJson);
@@ -240,6 +258,32 @@ public boolean sendEdgeDataToCloud(ResourceNameEnum resource, SensorData data)
     }
     return false;
 }
+
+public boolean initializeActionItemsVariable() {
+    if (this.mqttClient == null || !this.mqttClient.isConnected()) {
+        _Logger.warning("Cannot initialize action items - MQTT client not connected");
+        return false;
+    }
+    
+    try {
+        // Publish to create the variable
+        String topic = this.topicPrefix + this.deviceID + "/todo-display";
+        String payload = "{\"value\": \"Ready\"}";
+        
+        boolean success = this.mqttClient.publishMessage(topic, payload.getBytes(), this.qos);
+        
+        if (success) {
+            _Logger.info("Initialized todo-display variable in Ubidots");
+        }
+        
+        return success;
+        
+    } catch (Exception e) {
+        _Logger.log(Level.WARNING, "Failed to initialize action items", e);
+        return false;
+    }
+}
+
 
 @Override
 public boolean sendEdgeDataToCloud(ResourceNameEnum resource, SystemPerformanceData data)
@@ -286,32 +330,32 @@ public boolean sendEdgeDataToCloud(ResourceNameEnum resource, SystemPerformanceD
     }
     
     // IConnectionListener methods - CRITICAL FOR LED SUBSCRIPTION
-    @Override
-    public void onConnect()
-    {
-        _Logger.info("Connected to cloud service - setting up LED subscription");
-        
-        // Create LED message listener
-        LedEnablementMessageListener ledListener = 
-            new LedEnablementMessageListener(this.dataMsgListener);
-        
-        // Build the LED topic name
-        // For Ubidots, this would be something like: /v1.6/devices/{device-id}/led-actuator/lv
-        // The "/lv" suffix gets the last value
-        String ledTopic = this.topicPrefix + this.deviceID + "/led-actuator/lv";
-        
-        _Logger.info("Subscribing to LED topic: " + ledTopic);
-        
-        // Subscribe to LED actuator topic
-        if (this.mqttClient != null) {
-            boolean subscribed = this.mqttClient.subscribeToTopic(ledTopic, this.qos, ledListener);
-            if (subscribed) {
-                _Logger.info("Successfully subscribed to LED actuator topic");
-            } else {
-                _Logger.warning("Failed to subscribe to LED actuator topic");
-            }
-        }
-    }
+
+@Override
+public void onConnect()
+{
+    _Logger.info("Connected to cloud service - setting up subscriptions");
+    
+    if (this.mqttClient == null) return;
+
+    // Subscribe first
+    LedEnablementMessageListener ledListener = 
+        new LedEnablementMessageListener(this.dataMsgListener);
+    String ledTopic = this.topicPrefix + this.deviceID + "/led-actuator/lv";
+    this.mqttClient.subscribeToTopic(ledTopic, this.qos, ledListener);
+    _Logger.info("Subscribed to LED topic: " + ledTopic);
+
+        WorkTimeMessageListener workTimeListener = 
+        new WorkTimeMessageListener(this.dataMsgListener);
+    String workTimeTopic = this.topicPrefix + this.deviceID + "/work-time/lv";
+    
+    this.mqttClient.subscribeToTopic(workTimeTopic, this.qos, workTimeListener);
+    _Logger.info("Subscribed to work time topic: " + workTimeTopic);
+    String todoTopic = this.topicPrefix + this.deviceID + "/todo-display/lv";
+
+    _Logger.info("Subscribed to To-Do topic: " + todoTopic);
+
+}
     
     @Override
     public void onDisconnect()
@@ -345,4 +389,114 @@ public boolean sendEdgeDataToCloud(ResourceNameEnum resource, SystemPerformanceD
         
         return resource.getResourceName();
     }
+
+    // Inner class for handling To-Do text messages
+private class ToDoMessageListener implements IMqttMessageListener
+{
+    private IDataMessageListener dataMsgListener;
+    
+    ToDoMessageListener(IDataMessageListener listener) {
+        this.dataMsgListener = listener;
+    }
+    
+    @Override
+    public void messageArrived(String topic, MqttMessage message) throws Exception {
+        String payload = new String(message.getPayload());
+        _Logger.info("Received To-Do from cloud: " + payload);
+        
+        String messageText = "";
+
+        // Ubidots logic: parse out "text" from context
+        try {
+            if (payload.contains("context") && payload.contains("text")) {
+                int textStart = payload.indexOf("\"text\":") + 7;
+                String temp = payload.substring(textStart);
+                if (temp.startsWith("\"")) temp = temp.substring(1);
+                int endQuote = temp.indexOf("\"");
+                if (endQuote > 0) messageText = temp.substring(0, endQuote);
+            } else {
+                messageText = payload;
+            }
+            
+            if (!messageText.isEmpty()) {
+                ActuatorData ad = new ActuatorData();
+                ad.setLocationID(ConfigConst.CONSTRAINED_DEVICE);
+                ad.setTypeID(2010);  // LED_MATRIX_ACTUATOR_TYPE
+                ad.setCommand(ConfigConst.ON_COMMAND); 
+                ad.setName("ToDoDisplay");
+                ad.setStateData(messageText); 
+                
+                String json = DataUtil.getInstance().actuatorDataToJson(ad);
+                
+                if (this.dataMsgListener != null) {
+                    this.dataMsgListener.handleIncomingMessage(
+                        ResourceNameEnum.CDA_ACTUATOR_CMD_RESOURCE, json);
+                }
+            }
+        } catch (Exception e) {
+            _Logger.warning("Error parsing To-Do message: " + e.getMessage());
+        }
+    }
+}
+
+// Inner class for handling work time messages
+private class WorkTimeMessageListener implements IMqttMessageListener
+{
+    private IDataMessageListener dataMsgListener;
+    
+    WorkTimeMessageListener(IDataMessageListener listener) {
+        this.dataMsgListener = listener;
+    }
+    
+    @Override
+    public void messageArrived(String topic, MqttMessage message) throws Exception {
+        String payload = new String(message.getPayload());
+        _Logger.info("Received work time from cloud: " + payload);
+        
+        try {
+            // Parse the work time value (in minutes)
+            int workMinutes = 0;
+            
+            // Ubidots sends the value, parse it
+            if (payload.contains("\"value\"")) {
+                // Extract value from JSON
+                int valueStart = payload.indexOf("\"value\":") + 8;
+                String temp = payload.substring(valueStart).trim();
+                if (temp.startsWith("\"")) temp = temp.substring(1);
+                int endQuote = temp.indexOf("\"");
+                if (endQuote < 0) endQuote = temp.indexOf(",");
+                if (endQuote < 0) endQuote = temp.indexOf("}");
+                if (endQuote > 0) {
+                    String valueStr = temp.substring(0, endQuote).trim();
+                    workMinutes = (int) Double.parseDouble(valueStr);  // Changed this line
+                }
+            } else {
+                // Simple number
+                workMinutes = (int) Double.parseDouble(payload.trim());  // And this line
+            }
+            
+            if (workMinutes > 0) {
+                // Create ActuatorData for LED display with timer
+                ActuatorData ad = new ActuatorData();
+                ad.setLocationID("constraineddevice001");    
+                ad.setTypeID(2010);  // LED_MATRIX_ACTUATOR_TYPE
+                ad.setCommand(ConfigConst.ON_COMMAND);
+                ad.setName("WorkTimer");
+                ad.setValue(workMinutes); // Store minutes as value
+                ad.setStateData("TIMER:" + workMinutes); // Special format for timer
+                
+                String json = DataUtil.getInstance().actuatorDataToJson(ad);
+                
+                if (this.dataMsgListener != null) {
+                    this.dataMsgListener.handleIncomingMessage(
+                        ResourceNameEnum.CDA_ACTUATOR_CMD_RESOURCE, json);
+                }
+                
+                _Logger.info("Work timer set for " + workMinutes + " minutes");
+            }
+        } catch (Exception e) {
+            _Logger.warning("Error parsing work time message: " + e.getMessage());
+        }
+    }
+}
 }

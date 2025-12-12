@@ -13,17 +13,19 @@ package programmingtheiot.gda.connection;
 
 import java.io.FileInputStream;
 import java.security.KeyStore;
+import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.util.Collection;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.security.cert.Certificate;
-import java.util.Collection;
+
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManagerFactory;
 
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
+import org.eclipse.paho.client.mqttv3.IMqttMessageListener;
 import org.eclipse.paho.client.mqttv3.IMqttToken;
 import org.eclipse.paho.client.mqttv3.MqttAsyncClient;
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
@@ -31,7 +33,6 @@ import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
-import org.eclipse.paho.client.mqttv3.IMqttMessageListener;
 
 import programmingtheiot.common.ConfigConst;
 import programmingtheiot.common.ConfigUtil;
@@ -137,6 +138,8 @@ public class MqttClientConnector implements IPubSubClient, MqttCallbackExtended
 	}
 
 
+	
+
 
 	protected boolean publishMessage(String topicName, byte[] payload, int qos)
 	{
@@ -173,6 +176,42 @@ public class MqttClientConnector implements IPubSubClient, MqttCallbackExtended
 		
 		return false;
 	}
+
+
+	protected boolean publishMessage(String topicName, byte[] payload, int qos, boolean waitForCompletion)
+{
+    if (topicName == null) {
+        _Logger.warning("Resource is null. Unable to publish message: " + this.brokerAddr);
+        return false;
+    }
+    
+    if (payload == null || payload.length == 0) {
+        _Logger.warning("Message is null or empty. Unable to publish message: " + this.brokerAddr);
+        return false;
+    }
+    
+    if (qos < 0 || qos > 2) {
+        qos = ConfigConst.DEFAULT_QOS;
+    }
+    
+    try {
+        MqttMessage mqttMsg = new MqttMessage();
+        mqttMsg.setQos(qos);
+        mqttMsg.setPayload(payload);
+        
+        IMqttDeliveryToken token = this.mqttClient.publish(topicName, mqttMsg);
+        
+        if (waitForCompletion) {
+            token.waitForCompletion();
+        }
+        
+        return true;
+    } catch (Exception e) {
+        _Logger.log(Level.SEVERE, "Failed to publish message to topic: " + topicName, e);
+    }
+    
+    return false;
+}
 
 
 	protected boolean subscribeToTopic(String topicName, int qos)
@@ -269,25 +308,32 @@ protected boolean unsubscribeFromTopic(String topicName)
 		return false;
 	}
 
-	@Override
-	public boolean disconnectClient()
-	{
-		try {
-			if (this.mqttClient != null) {
-				if (this.mqttClient.isConnected()) {
-					_Logger.info("Disconnecting MQTT client from broker: " + this.brokerAddr);
-					this.mqttClient.disconnect();
-					return true;
-				} else {
-					_Logger.warning("MQTT client not connected to broker: " + this.brokerAddr);
-				}
-			}
-		} catch (Exception e) {
-			_Logger.log(Level.SEVERE, "Failed to disconnect MQTT client from broker: " + this.brokerAddr, e);
-		}
-		
-		return false;
-	}
+@Override
+public boolean disconnectClient()
+{
+    try {
+        if (this.mqttClient != null) {
+            if (this.mqttClient.isConnected()) {
+                _Logger.info("Disconnecting MQTT client from broker: " + this.brokerAddr);
+                
+                // Wait briefly for any pending callbacks to complete
+                Thread.sleep(100);
+                
+                IMqttToken token = this.mqttClient.disconnect();
+                token.waitForCompletion(5000);
+                return true;
+            } else {
+                _Logger.warning("MQTT client not connected to broker: " + this.brokerAddr);
+            }
+        }
+    } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+    } catch (Exception e) {
+        _Logger.log(Level.SEVERE, "Failed to disconnect MQTT client from broker: " + this.brokerAddr, e);
+    }
+    
+    return false;
+}
 
 	public boolean isConnected()
 	{
@@ -312,6 +358,21 @@ public boolean publishMessage(ResourceNameEnum topicName, String msg, int qos)
     
     // Just call the protected method!
     return publishMessage(topicName.getResourceName(), msg.getBytes(), qos);
+}
+
+public boolean publishMessage(ResourceNameEnum topicName, String msg, int qos, boolean waitForCompletion)
+{
+    if (topicName == null) {
+        _Logger.warning("Resource is null. Unable to publish message: " + this.brokerAddr);
+        return false;
+    }
+    
+    if (msg == null || msg.length() == 0) {
+        _Logger.warning("Message is null or empty. Unable to publish message: " + this.brokerAddr);
+        return false;
+    }
+    
+    return publishMessage(topicName.getResourceName(), msg.getBytes(), qos, waitForCompletion);
 }
 
 
@@ -363,31 +424,29 @@ public boolean unsubscribeFromTopic(ResourceNameEnum topicName)
 	}
 	
 	// callbacks
-	@Override
-	public void connectComplete(boolean reconnect, String serverURI)
-	{
-		_Logger.info("MQTT connection successful (is reconnect = " + reconnect + "). Broker: " + serverURI);
-		
-		int qos = 1;
-		
-		// Option 1
-		if (! this.useCloudGatewayConfig) {
-			this.subscribeToTopic(ResourceNameEnum.CDA_ACTUATOR_RESPONSE_RESOURCE, qos);
-			this.subscribeToTopic(ResourceNameEnum.CDA_SENSOR_MSG_RESOURCE, qos);
-			this.subscribeToTopic(ResourceNameEnum.CDA_SYSTEM_PERF_MSG_RESOURCE, qos);
-			
-			// IMPORTANT NOTE: You'll have to parse each message type in the callback method
-			// `public void messageArrived(String topic, MqttMessage msg) throws Exception`
-		}
-		
-		// This call enables the MqttClientConnector to notify another listener
-		// about the connection now being complete. This will be important for
-		// the CloudClientConnector implementation, is it needs to know when
-		// this client is finally connected with the cloud-hosted MQTT broker.
-		if (this.connListener != null) {
-			this.connListener.onConnect();
-		}
-	}
+@Override
+public void connectComplete(boolean reconnect, String serverURI)
+{
+    _Logger.info("MQTT connection successful (is reconnect = " + reconnect + "). Broker: " + serverURI);
+    
+    // Check if still connected before subscribing
+    if (!this.mqttClient.isConnected()) {
+        _Logger.fine("Client disconnected before subscriptions could be set up");
+        return;
+    }
+    
+    int qos = 1;
+    
+    if (!this.useCloudGatewayConfig) {
+        this.subscribeToTopic(ResourceNameEnum.CDA_ACTUATOR_RESPONSE_RESOURCE, qos);
+        this.subscribeToTopic(ResourceNameEnum.CDA_SENSOR_MSG_RESOURCE, qos);
+        this.subscribeToTopic(ResourceNameEnum.CDA_SYSTEM_PERF_MSG_RESOURCE, qos);
+    }
+    
+    if (this.connListener != null) {
+        this.connListener.onConnect();
+    }
+}
 
 	@Override
 	public void connectionLost(Throwable t)
@@ -470,9 +529,10 @@ public boolean unsubscribeFromTopic(ResourceNameEnum topicName)
 		this.persistence = new MemoryPersistence();
 		this.connOpts = new MqttConnectOptions();
 		this.connOpts.setKeepAliveInterval(this.brokerKeepAlive);
-		this.connOpts.setCleanSession(false);
+		this.connOpts.setCleanSession(true);
 		this.connOpts.setAutomaticReconnect(true);
-		
+		this.connOpts.setMaxInflight(10);  
+
 		// Check for encryption
 		boolean enableCrypt = configUtil.getBoolean(
 			configSectionName, ConfigConst.ENABLE_CRYPT_KEY);
@@ -547,6 +607,7 @@ private void initSecureConnectionParameters(String configSectionName)
             // Your existing local broker code
             SSLSocketFactory sslSocketFactory = createSocketFactory(certFile);
             this.connOpts.setSocketFactory(sslSocketFactory);
+			this.connOpts.setHttpsHostnameVerificationEnabled(false);  
             _Logger.info("TLS enabled for MQTT connection on port " + this.port);
         }
     } catch (Exception e) {
@@ -557,30 +618,37 @@ private void initSecureConnectionParameters(String configSectionName)
 
 		
 	private void initCredentialConnectionParameters(String configSectionName)
-	{
-		ConfigUtil configUtil = ConfigUtil.getInstance();
-		String credFile = configUtil.getProperty(configSectionName, ConfigConst.CRED_FILE_KEY);
-		
-		if (credFile != null && !credFile.isEmpty()) {
-			try {
-				_Logger.info("Loading credentials from: " + credFile);
-				
-				// Read the token from your file
-				java.util.Properties props = new java.util.Properties();
-				props.load(new FileInputStream(credFile));
-				String apiToken = props.getProperty("apitoken");
-				
-				if (apiToken != null) {
-					// For Ubidots: token goes as username, password can be empty
-					this.connOpts.setUserName(apiToken.trim());
-					this.connOpts.setPassword("".toCharArray());
-					_Logger.info("Credentials loaded successfully");
-				}
-			} catch (Exception e) {
-				_Logger.log(Level.WARNING, "Failed to load credentials from: " + credFile, e);
-			}
-		}
-	}
+{
+    ConfigUtil configUtil = ConfigUtil.getInstance();
+    String credFile = configUtil.getProperty(configSectionName, ConfigConst.CRED_FILE_KEY);
+    
+    if (credFile != null && !credFile.isEmpty()) {
+        try {
+            _Logger.info("Loading credentials from: " + credFile);
+            
+            // Read the token from your file
+            java.util.Properties props = new java.util.Properties();
+            props.load(new FileInputStream(credFile));
+            String apiToken = props.getProperty("apitoken");
+            
+            if (apiToken != null) {
+                String token = apiToken.trim();
+                
+                // For Ubidots: token goes as username, client ID, password is empty
+                this.connOpts.setUserName(token);
+                this.connOpts.setPassword("".toCharArray());
+                
+                // CRITICAL: Set client ID to the token for Ubidots
+                this.clientID = token;
+                
+                _Logger.info("Credentials loaded successfully");
+                _Logger.info("Client ID set to: " + token.substring(0, 10) + "...");
+            }
+        } catch (Exception e) {
+            _Logger.log(Level.WARNING, "Failed to load credentials from: " + credFile, e);
+        }
+    }
+}
 		
 	
 }

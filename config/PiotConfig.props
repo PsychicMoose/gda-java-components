@@ -31,22 +31,22 @@ credFile       = ./cred/PiotSmtpCred.props
 host           = localhost
 port           = 25
 securePort     = 587
-enableAuth     = True
-enableCrypt    = True
+enableAuth     = False
+enableCrypt    = False
 
 #
 # MQTT client configuration information
 #
 [Mqtt.GatewayService]
 #credFile       = ./cred/PiotMqttCred.props
-certFile       = ./cert/PiotMqttLocalCertFile.pem
-host           = localhost
+certFile       = ./cert/ca.crt
+host           =  10.0.0.192
 port           = 1883
 securePort     = 8883
 defaultQoS     = 0
 keepAlive      = 60
 enableAuth     = False
-enableCrypt    = False
+enableCrypt    = True
 useAsyncClient = True
 
 #
@@ -78,7 +78,7 @@ enableCoapServer        = False
 enableCoapClient        = False
 enableCloudClient       = True
 enableSmtpClient        = False
-enablePersistenceClient = False
+enablePersistenceClient = True
 enableSystemPerformance = True
 testGdaDataPath         = /tmp/gda-data
 testCdaDataPath         = /tmp/cda-data

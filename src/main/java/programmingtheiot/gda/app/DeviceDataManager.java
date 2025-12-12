@@ -16,23 +16,20 @@ import programmingtheiot.common.ConfigUtil;
 import programmingtheiot.common.IActuatorDataListener;
 import programmingtheiot.common.IDataMessageListener;
 import programmingtheiot.common.ResourceNameEnum;
-
 import programmingtheiot.data.ActuatorData;
 import programmingtheiot.data.BaseIotData;
 import programmingtheiot.data.DataUtil;
 import programmingtheiot.data.SensorData;
 import programmingtheiot.data.SystemPerformanceData;
 import programmingtheiot.data.SystemStateData;
-
 import programmingtheiot.gda.connection.CloudClientConnector;
+import programmingtheiot.gda.connection.CoapClientConnector;
 import programmingtheiot.gda.connection.CoapServerGateway;
-import programmingtheiot.gda.connection.IPersistenceClient;
 import programmingtheiot.gda.connection.IPubSubClient;
 import programmingtheiot.gda.connection.IRequestResponseClient;
 import programmingtheiot.gda.connection.MqttClientConnector;
-import programmingtheiot.gda.connection.RedisPersistenceAdapter;
-import programmingtheiot.gda.connection.SmtpClientConnector;
-
+import programmingtheiot.gda.system.DataHeuristicsManager;
+import programmingtheiot.gda.system.DataPersistenceManager;
 import programmingtheiot.gda.system.SystemPerformanceManager;
 
 /**
@@ -54,15 +51,23 @@ public class DeviceDataManager implements IDataMessageListener
 	private boolean enableSmtpClient = false;
 	private boolean enablePersistenceClient = false;
 	private boolean enableSystemPerf = false;
+	private boolean enableCoapClient = false;
+
 	
 	private IActuatorDataListener actuatorDataListener = null;
 	private IPubSubClient mqttClient = null;
 	private CloudClientConnector cloudClient = null;
-	private IPersistenceClient persistenceClient = null;
+	private DataPersistenceManager persistenceManager = null;
 	private IRequestResponseClient smtpClient = null;
 	private CoapServerGateway coapServer = null;
 	private SystemPerformanceManager sysPerfMgr = null;
-	
+	private CoapClientConnector coapClient = null;
+	private DataHeuristicsManager heuristicsManager;
+
+	private long lastFocusChangeTime = 0;
+	private boolean currentlyFocused = true;
+	private static final long UNFOCUS_THRESHOLD_MS = 3000; // 30 seconds
+	private boolean alarmActive = false;
 	private DataUtil dataUtil = null;
 	
 	// Humidity threshold crossing properties
@@ -79,6 +84,9 @@ public class DeviceDataManager implements IDataMessageListener
 	private float   nominalHumiditySetting   = 40.0f;
 	private float   triggerHumidifierFloor   = 30.0f;
 	private float   triggerHumidifierCeiling = 50.0f;
+	
+
+
 	
 	// constructors
 	
@@ -112,6 +120,9 @@ public class DeviceDataManager implements IDataMessageListener
 			configUtil.getBoolean(
 				ConfigConst.GATEWAY_DEVICE, ConfigConst.ENABLE_PERSISTENCE_CLIENT_KEY);
 		
+		this.enableCoapClient = configUtil.getBoolean(
+   			 ConfigConst.GATEWAY_DEVICE, ConfigConst.ENABLE_COAP_CLIENT_KEY);
+
 		// Parse humidity threshold crossing configuration
 		this.handleHumidityChangeOnDevice =
 			configUtil.getBoolean(
@@ -215,10 +226,8 @@ public class DeviceDataManager implements IDataMessageListener
 				_Logger.warning("Error flag set for ActuatorData instance: " + data.getName());
 			}
 			
-			// Store in persistence if enabled
-			if (this.enablePersistenceClient && this.persistenceClient != null) {
-				// TODO: Implement persistence storage
-				// this.persistenceClient.storeData(resourceName.getResourceName(), ConfigConst.DEFAULT_QOS, data);
+			if (this.persistenceManager != null) {
+				this.persistenceManager.logActuatorData(data);
 			}
 			
 			return true;
@@ -269,7 +278,7 @@ public class DeviceDataManager implements IDataMessageListener
 					String jsonData = DataUtil.getInstance().actuatorDataToJson(ad);
 					
 					if (this.mqttClient != null) {
-						_Logger.fine("Publishing actuator command to CDA via MQTT: " + jsonData);
+						_Logger.info("Publishing actuator command to CDA via MQTT: " + jsonData);
 						return this.mqttClient.publishMessage(resourceName, jsonData, ConfigConst.DEFAULT_QOS);
 					}
 				} else {
@@ -296,14 +305,10 @@ public class DeviceDataManager implements IDataMessageListener
 			
 			_Logger.fine("JSON [SensorData] -> " + jsonData);
 			
-			// TODO: retrieve this from config file
 			int qos = ConfigConst.DEFAULT_QOS;
+
 			
-			// Store in persistence if enabled
-			if (this.enablePersistenceClient && this.persistenceClient != null) {
-				// TODO: Implement persistence storage
-				// this.persistenceClient.storeData(resourceName.getResourceName(), qos, data);
-			}
+
 			
 			// Analyze the incoming sensor data for threshold crossings
 			this.handleIncomingDataAnalysis(resourceName, data);
@@ -311,6 +316,56 @@ public class DeviceDataManager implements IDataMessageListener
 			// Handle upstream transmission
 			this.handleUpstreamTransmission(resourceName, jsonData, qos);
 			
+			if (data.getTypeID() == 1015 || data.getTypeID() == 1014) {  // Noise or Light
+				float smoothedValue = this.heuristicsManager.applySmoothing(
+					data.getTypeID(), 
+					data.getValue()
+				);
+				data.setValue(smoothedValue);
+				_Logger.info("Applied smoothing: " + data.getName() + " = " + smoothedValue);
+			}
+
+			if (data.getTypeID() == 1016) {  // Camera sensor
+				boolean focused = data.getValue() > 0.5;  // 1.0 = focused, 0.0 = unfocused
+				
+				long now = System.currentTimeMillis();
+				
+				// Track state changes
+			if (focused != currentlyFocused) {
+				lastFocusChangeTime = now;
+				
+				// If changing from unfocused to focused, clear any active alarm
+				if (focused && alarmActive) {
+					_Logger.info("Focus restored. Clearing alarm.");
+					clearFocusAlarm();
+					alarmActive = false;
+				}
+				
+				currentlyFocused = focused;
+				_Logger.info("Focus state changed: " + (focused ? "FOCUSED" : "UNFOCUSED"));
+			}
+    
+    // Check if unfocused for threshold duration
+			if (!currentlyFocused && !alarmActive) {
+				long unfocusedDuration = now - lastFocusChangeTime;
+				if (unfocusedDuration >= UNFOCUS_THRESHOLD_MS) {
+					_Logger.warning("User unfocused for " + (unfocusedDuration/1000) + " seconds! Triggering alarm.");
+					triggerFocusAlarm();
+					alarmActive = true;
+				}
+			}
+
+			if (currentlyFocused && alarmActive) {
+				_Logger.info("User refocused. Clearing alarm.");
+				clearFocusAlarm();
+				alarmActive = false;
+			}
+		}
+
+			if (this.persistenceManager != null) {
+    			this.persistenceManager.logSensorData(data);
+			}	
+
 			return true;
 		} else {
 			return false;
@@ -339,9 +394,8 @@ public class DeviceDataManager implements IDataMessageListener
 				_Logger.fine("Converted system performance data to JSON: " + jsonData);
 				
 				// Store in persistence if enabled
-				if (this.enablePersistenceClient && this.persistenceClient != null) {
-					// TODO: Implement persistence storage
-					// this.persistenceClient.storeData(resourceName.getResourceName(), ConfigConst.DEFAULT_QOS, data);
+				if (this.persistenceManager != null) {
+					this.persistenceManager.logSystemPerformanceData(data);
 				}
 				
 				// Handle upstream transmission
@@ -383,9 +437,11 @@ public class DeviceDataManager implements IDataMessageListener
 			}
 		}
 		
-		// Start CoAP server if enabled
-		if (this.enableCoapServer && this.coapServer != null) {
-			// TODO: Implement in Lab Module 8
+		// Start CoAP client if enabled
+		// Start CoAP client if enabled
+		if (this.enableCoapClient && this.coapClient != null) {
+			_Logger.info("CoAP client ready");
+			// CoAP is connectionless, no explicit connect needed
 		}
 		
 		// Start cloud client if enabled
@@ -397,10 +453,7 @@ public class DeviceDataManager implements IDataMessageListener
 			}
 		}
 				
-		// Start persistence client if enabled
-		if (this.enablePersistenceClient && this.persistenceClient != null) {
-			// TODO: Implement as optional exercise in Lab Module 5
-		}
+
 		
 		// Start SMTP client if enabled (stateless, so no connection needed)
 		if (this.enableSmtpClient && this.smtpClient != null) {
@@ -429,9 +482,15 @@ public class DeviceDataManager implements IDataMessageListener
 			}
 		}
 		
+		// In stopManager()
+			if (this.persistenceManager != null) {
+				this.persistenceManager.close();
+			}
+
 		// Stop CoAP server
-		if (this.coapServer != null) {
-			// TODO: Implement in Lab Module 8
+		if (this.coapClient != null) {
+			this.coapClient.shutdown();  // or whatever cleanup method you have
+			_Logger.info("CoAP client stopped");
 		}
 		
 		if (this.cloudClient != null) {
@@ -442,10 +501,6 @@ public class DeviceDataManager implements IDataMessageListener
 			}
 		}
 		
-		// Disconnect persistence client
-		if (this.persistenceClient != null) {
-			// TODO: Implement as optional exercise in Lab Module 5
-		}
 		
 		_Logger.info("DeviceDataManager stopped successfully");
 	}
@@ -481,6 +536,14 @@ public class DeviceDataManager implements IDataMessageListener
 			_Logger.info("CoAP server enabled - will initialize in Lab Module 8");
 			// TODO: Implement in Lab Module 8
 		}
+
+		// Initialize CoAP client if enabled
+		if (this.enableCoapClient) {
+			_Logger.info("Initializing CoAP client...");
+			this.coapClient = new CoapClientConnector();
+			// Set data message listener so responses come back to DDM
+			this.coapClient.setDataMessageListener(this);
+		}
 		
 		// Initialize cloud client if enabled
 		if (this.enableCloudClient) {
@@ -501,6 +564,11 @@ public class DeviceDataManager implements IDataMessageListener
 			// TODO: Implement when needed
 		}
 		
+		this.persistenceManager = new DataPersistenceManager();
+
+		this.heuristicsManager = new DataHeuristicsManager();
+
+
 		_Logger.info("DeviceDataManager initialization complete");
 	}
 	
@@ -654,6 +722,28 @@ public class DeviceDataManager implements IDataMessageListener
 		}
 	}
 	
+	private void triggerFocusAlarm() {
+		ActuatorData alarmCmd = new ActuatorData();
+		alarmCmd.setLocationID("constraineddevice001");
+		alarmCmd.setTypeID(ConfigConst.LED_MATRIX_ACTUATOR_TYPE);
+		alarmCmd.setCommand(3);     // COMMAND_CUSTOM
+		alarmCmd.setStateData("ALARM");
+		
+		sendActuatorCommandtoCda(ResourceNameEnum.CDA_ACTUATOR_CMD_RESOURCE, alarmCmd);
+		_Logger.info("Focus alarm command sent to LED matrix");
+	}
+
+	private void clearFocusAlarm() {
+		ActuatorData clearCmd = new ActuatorData();
+		clearCmd.setLocationID("constraineddevice001");
+		clearCmd.setTypeID(ConfigConst.LED_MATRIX_ACTUATOR_TYPE);
+		clearCmd.setCommand(0);     // COMMAND_OFF
+		clearCmd.setStateData("CLEAR");
+		
+		sendActuatorCommandtoCda(ResourceNameEnum.CDA_ACTUATOR_CMD_RESOURCE, clearCmd);
+		_Logger.info("Focus alarm cleared");
+	}
+
 	/**
 	 * Extracts OffsetDateTime from BaseIotData timestamp.
 	 */

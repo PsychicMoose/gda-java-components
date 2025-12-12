@@ -120,46 +120,43 @@ public class MqttClientPerformanceTest
         execTestPublish(MAX_TEST_RUNS, 2);
     }
     
-    private void execTestPublish(int maxTestRuns, int qos)
-    {
-        assertTrue(this.mqttClient.connectClient());
+   private void execTestPublish(int maxTestRuns, int qos)
+{
+    assertTrue(this.mqttClient.connectClient());
+    
+    SensorData sensorData = new SensorData();
+    String payload = DataUtil.getInstance().sensorDataToJson(sensorData);
+    int payloadLen = payload.length();
+    
+    long startMillis = System.currentTimeMillis();
+    
+    for (int sequenceNo = 1; sequenceNo <= maxTestRuns; sequenceNo++) {
+        // Changed: added true to wait for each message to complete
+        this.mqttClient.publishMessage(ResourceNameEnum.CDA_MGMT_STATUS_CMD_RESOURCE, payload, qos, true);
         
-        SensorData sensorData = new SensorData();
-        String payload = DataUtil.getInstance().sensorDataToJson(sensorData);
-        int payloadLen = payload.length();
-        
-        long startMillis = System.currentTimeMillis();
-        
-        // Show progress for long-running tests
-        for (int sequenceNo = 1; sequenceNo <= maxTestRuns; sequenceNo++) {
-            this.mqttClient.publishMessage(ResourceNameEnum.CDA_MGMT_STATUS_CMD_RESOURCE, payload, qos);
-            
-            // Show progress every 2000 messages
-            if (sequenceNo % 2000 == 0) {
-                System.out.print(".");
-            }
+        if (sequenceNo % 2000 == 0) {
+            System.out.print(".");
         }
-        
-        long endMillis = System.currentTimeMillis();
-        long elapsedMillis = endMillis - startMillis;
-        
-        assertTrue(this.mqttClient.disconnectClient());
-        
-        // Calculate statistics
-        double avgPerMsg = (double) elapsedMillis / maxTestRuns;
-        double msgsPerSecond = (maxTestRuns * 1000.0) / elapsedMillis;
-        
-        // Write to file
-        resultsWriter.println("\nQoS " + qos + " Test:");
-        resultsWriter.println("  Messages: " + maxTestRuns);
-        resultsWriter.println("  Payload size: " + payloadLen + " bytes");
-        resultsWriter.println("  Total time: " + elapsedMillis + " ms");
-        resultsWriter.println("  Avg per message: " + String.format("%.3f", avgPerMsg) + " ms");
-        resultsWriter.println("  Messages per second: " + String.format("%.1f", msgsPerSecond));
-        resultsWriter.flush();
-        
-        System.out.println(" Done (" + elapsedMillis + " ms)");
     }
+    
+    long endMillis = System.currentTimeMillis();
+    long elapsedMillis = endMillis - startMillis;
+    
+    assertTrue(this.mqttClient.disconnectClient());
+    
+    double avgPerMsg = (double) elapsedMillis / maxTestRuns;
+    double msgsPerSecond = (maxTestRuns * 1000.0) / elapsedMillis;
+    
+    resultsWriter.println("\nQoS " + qos + " Test:");
+    resultsWriter.println("  Messages: " + maxTestRuns);
+    resultsWriter.println("  Payload size: " + payloadLen + " bytes");
+    resultsWriter.println("  Total time: " + elapsedMillis + " ms");
+    resultsWriter.println("  Avg per message: " + String.format("%.3f", avgPerMsg) + " ms");
+    resultsWriter.println("  Messages per second: " + String.format("%.1f", msgsPerSecond));
+    resultsWriter.flush();
+    
+    System.out.println(" Done (" + elapsedMillis + " ms)");
+}
     
     @org.junit.AfterClass
     public static void tearDownClass() throws Exception

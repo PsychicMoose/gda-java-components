@@ -285,7 +285,7 @@ public class ConfigConst
 	public static final String DATABASE_KEY        = "database";
 	public static final String ENV_DATA_BUCKET_KEY = "envDataBucket";
 	public static final String SYS_DATA_BUCKET_KEY = "sysDataBucket";
-	
+	public static final int LED_MATRIX_ACTUATOR_TYPE = 2010;
 	// constructors
 	
 	/**
